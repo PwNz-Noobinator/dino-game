@@ -1,0 +1,16 @@
+{
+  "name": "dino-game",
+  "version": "1.0.0",
+  "description": "Chrome Dino game clone with biome-specific weather sync.",
+  "main": "dino.html",
+  "scripts": {
+    "start": "echo \"Open dino.html in a browser\"",
+    "test": "echo \"No tests specified\""
+  },
+  "keywords": [
+    "dino",
+    "game"
+  ],
+  "author": "",
+  "license": "MIT"
+}

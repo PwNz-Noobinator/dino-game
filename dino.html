@@ -24,7 +24,7 @@
     .card-body{padding:16px 18px 18px}
     label{display:block; color:var(--accent); font-weight:700; margin:8px 0 6px}
     select, textarea{width:100%; border:1px solid var(--stroke); border-radius:8px; padding:12px 14px; outline:none; background:#000; color:#fff; font-size:14px}
-    select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(0,255,204,.2)}
+    select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(0,255,204,0.2)}
     textarea{min-height:140px; resize:vertical}
     .actions{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:10px}
     .controls{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px}
@@ -32,7 +32,7 @@
     #videoContainer.active{display:block}
     #yt-player{width:100%; height:240px; border:none; border-radius:8px; overflow:hidden; background:#000}
     #gameCanvas{display:block; width:100%; height:auto; background:#000; border-radius:8px; border:1px solid var(--stroke)}
-    .overlay{position:fixed; inset:0; display:none; background:rgba(0,0,0,.8); z-index:50; padding:16px}
+    .overlay{position:fixed; inset:0; display:none; background:rgba(0,0,0,0.8); z-index:50; padding:16px}
     .overlay.open{display:flex}
     .overlay-panel{margin:auto; width:min(640px, 94vw); background:var(--card); border:1px solid var(--stroke); border-radius:16px; padding:18px}
     .overlay h3{margin:0 0 8px; color:var(--accent); font-size:18px}
@@ -62,7 +62,10 @@
             <button id="restartBtn" class="btn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:none;">Restart</button>
           </div>
           <div style="margin-top:12px"><button id="start" class="btn">Start Game</button></div>
-          <div style="margin-top:10px; font-size:14px"><strong>Status:</strong> <span id="status_display">Idle</span></div>
+          <div style="margin-top:10px; font-size:14px">
+            <strong>Game:</strong> <span id="status_display">Idle</span>
+            <span style="margin-left:10px"><strong>Video:</strong> <span id="yt_status">—</span></span>
+          </div>
         </div>
       </section>
       <section class="card setup desktop-setup">
@@ -209,6 +212,8 @@ if(!isMobile){document.body.classList.add('desktop');containerEl.style.maxWidth=
           const gen=buildParallaxFor(nextBiome);
           farRidgesNext=gen.far; midRidgesNext=gen.mid; nearRidgesNext=gen.near;
           propsFarNext=gen.propsFar; propsNearNext=gen.propsNear; particlesNext=gen.particles;
+          weather.active=false; weather.particles=[]; weather.timer=0;
+          startWeather(nextBiome.weather);
         }
         biomeProgress=clamp((e-BIOME_DURATION)/BIOME_TRANSITION,0,1);
       } else {
@@ -321,9 +326,9 @@ async function startYouTubeWith(cfg){
         }
       },
       onStateChange:(e)=>{
-        if(e.data===1)statusDisplay.textContent='Playing';
-        else if(e.data===2)statusDisplay.textContent='Paused';
-        else if(e.data===0)statusDisplay.textContent='Ended';
+        const s=document.getElementById('yt_status');
+        if(!s)return;
+        s.textContent = e.data===1?'Playing' : e.data===2?'Paused' : e.data===0?'Ended' : '—';
       }
     }
   });
@@ -593,6 +598,7 @@ let lastPowerUpSpawn=0;
       farRidgesNext=[];midRidgesNext=[];nearRidgesNext=[];propsFarNext=[];propsNearNext=[];particlesNext=[];
       biomeStart=performance.now();
       weather={active:false,kind:null,particles:[],timer:0};
+      startWeather(currentBiome.weather);
       dino.y=groundLevel;dino.vy=0;dino.onGround=true;dinoPose='stand';
       distSinceLastObs=0;distSinceLastBird=Infinity;setNextObstacleGap();nextScoreSound=1000;dino.shields=0;lastPowerUpSpawn=0;
       statusDisplay.textContent='Ready';restartBtn.style.display='none';
@@ -695,7 +701,7 @@ let lastPowerUpSpawn=0;
       ctx.fillText(`Shields: ${dino.shields}`,gameCanvas.width/2,20);
       ctx.textAlign='left';
       if(gameOver){
-        ctx.fillStyle='rgba(0,0,0,.5)';
+        ctx.fillStyle='rgba(0,0,0,0.5)';
         ctx.fillRect(0,0,gameCanvas.width,gameCanvas.height);
         ctx.fillStyle='#fff';
         ctx.font='bold 36px system-ui';
@@ -704,9 +710,20 @@ let lastPowerUpSpawn=0;
         ctx.textAlign='start';
         restartBtn.style.display='block';
       }
-      if(!gameOver) requestAnimationFrame(loop);
+      if(!gameOver){
+        // Redraw fast only when something is animating
+        if (adv || weather.active || biomeProgress>0) {
+          requestAnimationFrame(loop);
+        } else {
+          setTimeout(() => requestAnimationFrame(loop), 200);
+        }
+      }
     }
     document.addEventListener('keydown',e=>{
+      const t = e.target;
+      const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+      const typing = tag==='input' || tag==='textarea' || (t && t.isContentEditable);
+      if (typing) return;
       if(['Space','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault();
       if(e.code==='Space'||e.code==='ArrowUp') dino.jump();
       if(e.code==='ArrowDown') dino.crouch(true);
