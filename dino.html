@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Offline Dino – Full Game</title>
+  <style>
+    :root{ --bg:#0d0d0d; --card:#1a1a1a; --stroke:#333; --accent:#00ffcc; --accent-d:#00d1aa; --muted:#aaa; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); color:#fff}
+    .container{max-width:1000px; margin:0 auto; padding:16px}
+    header{display:flex; gap:12px; align-items:center; justify-content:space-between}
+    h1{margin:0; font-size:24px; color:var(--accent); font-weight:800; letter-spacing:-.02em}
+    .btn{border:0; background:var(--accent); color:#000; padding:10px 16px; border-radius:999px; font-weight:700; cursor:pointer}
+    .btn:hover{background:var(--accent-d)}
+    .btn.secondary{background:#111; color:#fff; border:1px solid var(--stroke)}
+    .btn.secondary:hover{background:#151515}
+    .btn:disabled{opacity:.6; cursor:not-allowed}
+    .grid{display:grid; grid-template-columns:1fr; gap:16px}
+    @media (min-width:920px){ .grid{grid-template-columns:3fr 2fr} }
+    .card{background:var(--card); border-radius:14px; border:1px solid var(--stroke)}
+    .card h2{margin:0; padding:16px 18px 0; color:var(--accent); font-size:18px}
+    .card-body{padding:16px 18px 18px}
+    label{display:block; color:var(--accent); font-weight:700; margin:8px 0 6px}
+    select, textarea{width:100%; border:1px solid var(--stroke); border-radius:8px; padding:12px 14px; outline:none; background:#000; color:#fff; font-size:14px}
+    select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(0,255,204,.2)}
+    textarea{min-height:140px; resize:vertical}
+    .actions{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:10px}
+    .controls{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px}
+    #videoContainer{display:none; margin-top:12px}
+    #videoContainer.active{display:block}
+    #yt-player{width:100%; height:240px; border:none; border-radius:8px; overflow:hidden; background:#000}
+    #gameCanvas{display:block; width:100%; height:auto; background:#000; border-radius:8px; border:1px solid var(--stroke)}
+    .overlay{position:fixed; inset:0; display:none; background:rgba(0,0,0,.8); z-index:50; padding:16px}
+    .overlay.open{display:flex}
+    .overlay-panel{margin:auto; width:min(640px, 94vw); background:var(--card); border:1px solid var(--stroke); border-radius:16px; padding:18px}
+    .overlay h3{margin:0 0 8px; color:var(--accent); font-size:18px}
+    body.mobile.has-video .container{max-width:820px}
+    body.mobile.has-video main.grid{grid-template-columns:1fr}
+    body.mobile.has-video #videoContainer{display:block}
+    body.mobile.has-video #yt-player{height:32vh}
+    body.mobile.has-video #gameCanvas{height:auto}
+    body.mobile.game-only .container{max-width:820px}
+    body.mobile.game-only main.grid{grid-template-columns:1fr}
+    body.mobile.game-only #videoContainer{display:none}
+    body.mobile.game-only #gameCanvas{height:calc(100vh - 110px)}
+  </style>
+    <script src="https://www.youtube.com/iframe_api"></script>
+</head>
+<body>
+  <div class="container">
+    <header><h1>Offline Dino</h1></header>
+    <main class="grid">
+      <section class="card preview">
+        <h2>Game & Video</h2>
+        <div class="card-body">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px"><div id="char_display" style="font-weight:700">🦖 T-Rex</div></div>
+          <div id="videoContainer"><div id="yt-player"></div></div>
+          <div class="canvas-wrap" style="position:relative">
+            <canvas id="gameCanvas" width="900" height="260"></canvas>
+            <button id="restartBtn" class="btn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:none;">Restart</button>
+          </div>
+          <div style="margin-top:12px"><button id="start" class="btn">Start Game</button></div>
+          <div style="margin-top:10px; font-size:14px"><strong>Status:</strong> <span id="status_display">Idle</span></div>
+        </div>
+      </section>
+      <section class="card setup desktop-setup">
+        <h2>Setup</h2>
+        <div class="card-body">
+          <label for="character">Character</label>
+          <select id="character"></select>
+          <label for="yt">YouTube Playlist / Links</label>
+          <textarea id="yt" placeholder="Paste one or multiple YouTube URLs here (one per line)"></textarea>
+          <div class="actions">
+            <div id="videoControls" class="controls">
+              <button id="btnPlay"  class="btn secondary">Play</button>
+              <button id="btnPause" class="btn secondary">Pause</button>
+              <button id="btnSkip"  class="btn secondary">Skip ▶</button>
+            </div>
+            <small id="hint" style="color:var(--muted)">Links optional</small>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div id="mobileOverlay" class="overlay" aria-modal="true" role="dialog">
+    <div class="overlay-panel">
+      <h3>Quick Setup</h3>
+      <label for="m_character">Character</label>
+      <select id="m_character"></select>
+      <label for="m_yt">YouTube Playlist / Links</label>
+      <textarea id="m_yt" placeholder="Paste one per line (optional)"></textarea>
+      <div class="actions" style="margin-top:12px">
+        <button id="m_start" class="btn" style="width:100%">Start</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const P = {"trex": ["", "#6aa34a", "#476d33", "#283c1e", "#f6f1cf"], "caveman": ["", "#e09755", "#a06637", "#3a2a21", "#f2d8a5"], "kangaroo": ["", "#c6864d", "#8b5a2b", "#3a2a21", "#f2deb8"], "astronaut": ["", "#e3e9f2", "#c8cfdb", "#5c6675", "#57a5ff"], "penguin": ["", "#222", "#eee", "#f3c358"], "cat": ["", "#d46aa6", "#8d3d6b", "#1e1e1e", "#f3d8a8"], "frog": ["", "#41a34a", "#2f6f34", "#1b3f1f", "#e8e1b8"]};
+const POSES = {"trex": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],[0,0,0,0,0,0,0,0,0,0,0,0,1,4,1,1],[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0],[0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,2,0,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,2,1,1,1,1,1,1,0,0],[0,0,2,2,2,2,2,2,2,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],[0,0,0,0,0,0,0,0,0,0,0,0,1,4,1,1],[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0],[0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,2,0,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,2,1,1,1,1,1,1,0,0],[0,0,2,2,2,2,2,2,2,0,2,0,2,0,0,0],[0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],[0,0,0,0,0,0,0,0,0,0,0,0,1,4,1,1],[0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0],[0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,2,0,1,1,1,1,1,1,0,0],[0,0,0,0,0,0,0,2,1,1,1,1,1,1,0,0],[0,0,2,2,2,2,2,2,2,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,0,1,0,2,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]},
+"caveman": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0],[0,0,0,0,0,3,3,0,0,3,3,0,0,0,0,0],[0,0,0,0,0,3,1,1,1,1,3,0,0,0,0,0],[0,0,0,0,0,3,1,4,4,1,3,0,0,0,0,0],[0,0,0,0,0,3,1,1,1,1,3,0,0,0,0,0],[0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0],[0,0,0,0,0,3,3,0,0,3,3,0,0,0,0,0],[0,0,0,0,0,3,1,1,1,1,3,0,0,0,0,0],[0,0,0,0,0,3,1,4,4,1,3,0,0,0,0,0],[0,0,0,0,0,3,1,1,1,1,3,0,0,0,0,0],[0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,2,2,2,2,2,2,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0],[0,0,0,0,0,3,3,0,0,3,3,0,0,0,0,0],[0,0,0,0,0,3,1,1,1,1,3,0,0,0,0,0],[0,0,0,0,0,3,1,4,4,1,3,0,0,0,0,0],[0,0,0,0,0,3,1,1,1,1,3,0,0,0,0,0],[0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]},
+"kangaroo": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,1,4,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,2,2,2,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,1,4,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,2,2,1,1,1,0,0,0,0],[0,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,2,2,2,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,1,4,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,2,1,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,2,1,1,0,0,0,0],[0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0],[0,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,2,2,2,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]},
+"astronaut": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,2,2,2,2,2,2,0,0,0,0,0],[0,0,0,0,0,0,3,3,3,4,0,0,0,0,0,0],[0,0,0,0,1,2,2,2,2,2,2,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,2,2,1,1,2,2,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,2,2,2,2,2,2,0,0,0,0,0],[0,0,0,0,0,0,3,3,3,4,0,0,0,0,0,0],[0,0,0,0,1,2,2,2,2,2,2,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,1,2,1,1,2,1,1,0,0,0,0],[0,0,0,0,1,2,2,1,1,2,2,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,2,2,2,2,2,2,0,0,0,0,0],[0,0,0,0,0,0,3,3,3,4,0,0,0,0,0,0],[0,0,0,0,1,2,2,2,2,2,2,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],[0,0,0,0,1,2,2,1,1,2,2,1,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]},
+"penguin": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,2,3,3,2,1,0,0,0,0,0],[0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0],[0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,2,3,3,2,1,0,0,0,0,0],[0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0],[0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,2,3,3,2,1,1,0,0,0,0],[0,0,0,0,1,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]},
+"cat": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,4,4,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,4,4,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,1,2,2,1,1,2,0,0,0,0],[0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,4,4,1,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],[0,0,0,0,0,1,2,1,1,2,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]},
+"frog": {"stand": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,4,1,1,4,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,2,1,1,1,1,1,1,0,2,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"crouch": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,4,1,1,4,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,2,1,1,1,1,1,1,0,2,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"jump": [[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,4,1,1,4,0,0,0,0,0,0],[0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,0,2,1,1,1,1,1,1,0,2,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]}
+};
+
+    const CHARACTERS=[
+      {id:'trex',name:'T-Rex',emoji:'🦖'},
+      {id:'caveman',name:'Caveman',emoji:'🏹'},
+      {id:'kangaroo',name:'Kangaroo',emoji:'🦘'},
+      {id:'astronaut',name:'Astronaut',emoji:'🧑‍🚀'},
+      {id:'penguin',name:'Penguin',emoji:'🐧'},
+      {id:'cat',name:'Cat',emoji:'🐱'},
+      {id:'frog',name:'Frog',emoji:'🐸'}
+    ];
+    const SCALE=3;
+    const MAX_SHIELDS=3;
+    const SHIELD_COLORS=[
+      {stroke:'rgba(0,255,255,0.9)',fill:'rgba(0,255,255,0.3)'},
+      {stroke:'rgba(255,215,0,0.9)',fill:'rgba(255,215,0,0.3)'},
+      {stroke:'rgba(255,0,255,0.9)',fill:'rgba(255,0,255,0.3)'}
+    ];
+    function drawPose(ctx,pose,palette,x,y){for(let yy=0;yy<16;yy++){for(let xx=0;xx<16;xx++){const idx=pose[yy][xx];if(!idx)continue;ctx.fillStyle=palette[idx];ctx.fillRect(x+xx*SCALE,y+yy*SCALE,SCALE,SCALE);}}}
+    const isMobile=/Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent)||window.matchMedia('(max-width: 767px)').matches; if(isMobile)document.body.classList.add('mobile');
+    const charDisplay=document.getElementById('char_display');
+    const statusDisplay=document.getElementById('status_display');
+    const gameCanvas=document.getElementById('gameCanvas');
+    const ctx=gameCanvas.getContext('2d');
+    const charSelect=document.getElementById('character');
+    const ytInput=document.getElementById('yt');
+const startBtn=document.getElementById('start');
+const overlay=document.getElementById('mobileOverlay');
+const mChar=document.getElementById('m_character');
+const mYt=document.getElementById('m_yt');
+const mStart=document.getElementById('m_start');
+const btnPlay=document.getElementById('btnPlay');
+const btnPause=document.getElementById('btnPause');
+const btnSkip=document.getElementById('btnSkip');
+const restartBtn=document.getElementById('restartBtn');
+const videoControls=document.getElementById('videoControls');
+const containerEl=document.querySelector('.container');
+const gridEl=document.querySelector('main.grid');
+const ytLabel=document.querySelector('label[for="yt"]');
+const mYtLabel=document.querySelector('label[for="m_yt"]');
+if(!isMobile){document.body.classList.add('desktop');containerEl.style.maxWidth='1400px';gridEl.style.gridTemplateColumns='1fr';}
+
+    // ==== Biome background utilities (merged from biomes demo) ====
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const lerp=(a,b,t)=>a+(b-a)*t;
+    const hexToRgb=h=>{let x=h[0]==='#'?h.slice(1):h;if(x.length===3)x=x.split('').map(c=>c+c).join('');return{r:parseInt(x.slice(0,2),16),g:parseInt(x.slice(2,4),16),b:parseInt(x.slice(4,6),16)}};
+    const rgbToHex=({r,g,b})=>`#${[r,g,b].map(v=>Math.max(0,Math.min(255,v)).toString(16).padStart(2,'0')).join('')}`;
+    const colorLerp=(c1,c2,t)=>{const a=hexToRgb(c1),b=hexToRgb(c2);return rgbToHex({r:Math.round(lerp(a.r,b.r,t)),g:Math.round(lerp(a.g,b.g,t)),b:Math.round(lerp(a.b,b.b,t))})};
+    const mul=(c,amt)=>{const {r,g,b}=hexToRgb(c);return rgbToHex({r:Math.round(r*amt),g:Math.round(g*amt),b:Math.round(b*amt)})};
+    function makeGradient(y0,y1,c1,c2){const g=ctx.createLinearGradient(0,y0,0,y1);g.addColorStop(0,c1);g.addColorStop(1,c2);return g;}
+
+    const BIOMES=[
+      {name:'Desert', profile:'dunes', daySky:['#6ec9ff','#d6f3ff'], nightSky:['#08121f','#0f2840'], groundTop:'#d9b66e', groundBottom:'#b9893d', decor:['#6f5a3a','#9b8a62'], horizon:'#f0e1b4', bgFar:'#c8ae7a', bgNear:'#a68956', tint:'#ffe7b6', particles:'dust', weather:'sand'},
+      {name:'Volcano', profile:'craggy', daySky:['#ffa766','#ffd8b1'], nightSky:['#120707','#240e0e'], groundTop:'#4c2c2c', groundBottom:'#331717', decor:['#8b2a2a','#ff6b3d'], horizon:'#ff906b', bgFar:'#3b1e1e', bgNear:'#2a1414', tint:'#ffb38a', particles:'ash', weather:'ash'},
+      {name:'Snow', profile:'rounded', daySky:['#a6cfff','#f2f9ff'], nightSky:['#0a1736','#12265a'], groundTop:'#ebf4fd', groundBottom:'#cfe3fa', decor:['#a9c9ee','#ffffff'], horizon:'#d9ebff', bgFar:'#a7c3e5', bgNear:'#86add7', tint:'#dff2ff', particles:'snow', weather:'snow'},
+      {name:'Forest', profile:'pines', daySky:['#67d0ff','#c5f2ff'], nightSky:['#071b18','#0f2e29'], groundTop:'#3f7a39', groundBottom:'#2a5d28', decor:['#1e4a2b','#2f6d3b'], horizon:'#84d4a0', bgFar:'#2a4c35', bgNear:'#1e3a28', tint:'#b4ffd1', particles:'leaves', weather:'rain'}
+    ];
+    const BIOME_ORDER=['Desert','Volcano','Snow','Forest'];
+
+    let currentBiome=BIOMES[0],nextBiome=BIOMES[1],biomeProgress=0;
+    const DAY_LENGTH=16000;let cycleStart=performance.now();
+    const BIOME_DURATION=22000,BIOME_TRANSITION=5000;let biomeStart=performance.now();
+
+    // Parallax structures
+    let farRidges=[],midRidges=[],nearRidges=[],propsFar=[],propsNear=[],particles=[];
+    // upcoming biome parallax used for cross-fades
+    let farRidgesNext=[],midRidgesNext=[],nearRidgesNext=[],propsFarNext=[],propsNearNext=[],particlesNext=[];
+    const stars=Array.from({length:120},()=>({x:Math.random()*gameCanvas.width,y:Math.random()*150,size:Math.random()<0.12?1.5:1}));
+
+    function rand(seed){let t=seed|0;return()=>{t=(t+0x6D2B79F5)|0;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;};}
+    let prng=rand(123);
+
+    function getBiomeByName(name){return BIOMES.find(b=>b.name===name);}
+    function pickNextBiome(){const idx=BIOME_ORDER.indexOf(currentBiome.name);const nextName=BIOME_ORDER[(idx+1)%BIOME_ORDER.length];nextBiome=getBiomeByName(nextName);}
+
+    function buildParallaxFor(b){
+      prng=rand((b.name.charCodeAt(0)<<24)^(b.name.charCodeAt(1)<<16)^(Date.now()&0xffff));
+      return {
+        far: seedRidges(0.18,90,b),
+        mid: seedRidges(0.32,60,b),
+        near: seedRidges(0.50,45,b),
+        propsFar: seedProps(0.18,b,8),
+        propsNear: seedProps(0.50,b,14),
+        particles: seedParticles(b,50)
+      };
+    }
+    function getTimeOfDay(){const t=(performance.now()-cycleStart)%DAY_LENGTH,k=t/DAY_LENGTH;return clamp(Math.max(0,Math.cos((k-0.5)*Math.PI*2)),0,1);} // 0 night -> 1 day
+    function skyColors(b,dayW){const[dT,dB]=b.daySky,[nT,nB]=b.nightSky;return[colorLerp(nT,dT,dayW),colorLerp(nB,dB,dayW)];}
+    function updateBiomeProgress(){
+      const e=performance.now()-biomeStart;
+      if(e>BIOME_DURATION+BIOME_TRANSITION){
+        currentBiome=nextBiome;
+        farRidges=farRidgesNext; midRidges=midRidgesNext; nearRidges=nearRidgesNext;
+        propsFar=propsFarNext; propsNear=propsNearNext; particles=particlesNext;
+        farRidgesNext=[]; midRidgesNext=[]; nearRidgesNext=[];
+        propsFarNext=[]; propsNearNext=[]; particlesNext=[];
+        pickNextBiome();
+        biomeStart=performance.now();
+        biomeProgress=0;
+      } else if(e>BIOME_DURATION){
+        if(biomeProgress===0){
+          const gen=buildParallaxFor(nextBiome);
+          farRidgesNext=gen.far; midRidgesNext=gen.mid; nearRidgesNext=gen.near;
+          propsFarNext=gen.propsFar; propsNearNext=gen.propsNear; particlesNext=gen.particles;
+        }
+        biomeProgress=clamp((e-BIOME_DURATION)/BIOME_TRANSITION,0,1);
+      } else {
+        biomeProgress=0;
+      }
+    }
+
+    const BgSpeed={bucket:-1,factor:1,reseed(score){this.bucket=Math.floor(score/1000);this.factor=0.85+Math.random()*0.40;},update(score){const b=Math.floor(score/1000);if(b!==this.bucket)this.reseed(score);}};
+
+    function resetParallax(b){prng=rand((b.name.charCodeAt(0)<<24)^(b.name.charCodeAt(1)<<16)^(Date.now()&0xffff));farRidges=seedRidges(0.18,90,b);midRidges=seedRidges(0.32,60,b);nearRidges=seedRidges(0.50,45,b);propsFar=seedProps(0.18,b,8);propsNear=seedProps(0.50,b,14);particles=seedParticles(b,50);}
+    function seedRidges(speed,step,b){const list=[];let x=0;while(x<gameCanvas.width*2){list.push(makeRidge(x,step,speed,b));x+=step;}return list;}
+    function makeRidge(x,span,speed,b){const h=24+prng()*40;const samples=1+Math.floor(span/6);const ySamples=new Float32Array(samples);for(let i=0;i<samples;i++){const u=i/(samples-1);ySamples[i]=profileHeight(b.profile,h,u);}return{x,w:span+prng()*40,h,speed,ySamples};}
+    function profileHeight(profile,h,u){if(profile==='dunes')return -h*0.5+Math.sin((u*2*Math.PI))*8+(prng()-0.5)*6;if(profile==='craggy')return -h+(Math.abs(Math.sin(u*6*Math.PI))*14)+(prng()-0.5)*10;if(profile==='rounded')return -h*0.7+Math.sin(u*2*Math.PI)*10+(prng()-0.5)*5;return -h*0.8+Math.sin(u*3*Math.PI)*12+(prng()-0.5)*6;}
+    function drawRidgeStrip(list,b,dayW,adv,alpha=1){if(!list.length)return;ctx.save();ctx.globalAlpha=alpha;const baseY=HORIZON_Y-(list[0]?.speed<0.25?10:list[0]?.speed<0.4?6:2);ctx.fillStyle=mul(list[0]?.speed<0.25?b.bgFar:b.bgNear,lerp(0.75,1.12,dayW));for(const r of list){const step=(r.w)/(r.ySamples.length-1);ctx.beginPath();ctx.moveTo(r.x-60,GROUND_Y+60);for(let i=0;i<r.ySamples.length;i++){const x=r.x+i*step;ctx.lineTo(x,baseY+r.ySamples[i]);}ctx.lineTo(r.x+r.w+60,GROUND_Y+60);ctx.closePath();ctx.fill();r.x-=r.speed*BgSpeed.factor*adv;}ctx.restore();while(list.length&&list[0].x+list[0].w<-80){const tailX=list[list.length-1].x+list[list.length-1].w;list.shift();list.push(makeRidge(tailX+40,40+prng()*60,list[0]?.speed||0.3,b));}}
+    function seedProps(speed,b,count){const list=[];for(let i=0;i<count;i++){list.push(makeProp(b,speed,i));}return list;}
+    function makeProp(b,speed){const type=b.name==='Desert'?'cactus':b.name==='Volcano'?'spire':b.name==='Snow'?'ice':'pine';const x=20+prng()*gameCanvas.width*2;const baseY=HORIZON_Y-(speed<0.25?8:4);const size=18+prng()*30;const color=mul(b.decor[0],0.95);return{x,baseY,speed,type,size,color};}
+    function drawProps(list,b,dayW,adv,alpha=1){ctx.save();ctx.globalAlpha=alpha;for(const p of list){ctx.fillStyle=mul(p.color,lerp(0.9,1.1,dayW));if(p.type==='cactus'){const h=p.size;ctx.fillRect(p.x,p.baseY-h,10,h);ctx.fillRect(p.x-8,p.baseY-h*0.5,6,10);ctx.fillRect(p.x+10,p.baseY-h*0.35,6,10);}else if(p.type==='pine'){const h=p.size;ctx.fillRect(p.x-2,p.baseY,4,-12);ctx.beginPath();ctx.moveTo(p.x,p.baseY-h);ctx.lineTo(p.x-14,p.baseY-8);ctx.lineTo(p.x+14,p.baseY-8);ctx.closePath();ctx.fill();ctx.beginPath();ctx.moveTo(p.x,p.baseY-h*0.7);ctx.lineTo(p.x-18,p.baseY-4);ctx.lineTo(p.x+18,p.baseY-4);ctx.closePath();ctx.fill();}else if(p.type==='ice'){const w=10;const h=p.size;ctx.beginPath();ctx.moveTo(p.x,p.baseY);ctx.lineTo(p.x+w*0.5,p.baseY-h);ctx.lineTo(p.x+w,p.baseY);ctx.closePath();ctx.fill();}else{const w=12;const h=p.size;ctx.beginPath();ctx.moveTo(p.x,p.baseY);ctx.lineTo(p.x+w*0.5,p.baseY-h);ctx.lineTo(p.x+w,p.baseY);ctx.closePath();ctx.fill();}p.x-=p.speed*BgSpeed.factor*adv;}ctx.restore();while(list.length&&list[0].x<-40){const lastX=(list[list.length-1]?.x)||gameCanvas.width;list.shift();const n=makeProp(b,list[0]?.speed||0.4);n.x=lastX+40+prng()*120;list.push(n);}}
+    function seedParticles(b,n){const list=[];for(let i=0;i<n;i++)list.push(makeParticle(b));return list;}
+    function makeParticle(b){const t=b.particles;if(t==='snow')return{t:'snow',x:Math.random()*gameCanvas.width,y:Math.random()*HORIZON_Y,vx:-0.15-Math.random()*0.35,vy:0.2+Math.random()*0.4,s:1+Math.random()*1.2};if(t==='ash')return{t:'ash',x:Math.random()*gameCanvas.width,y:GROUND_Y-20-Math.random()*80,vx:-0.25-Math.random()*0.4,vy:-0.05-Math.random()*0.15,s:1+Math.random()*1};if(t==='leaves')return{t:'leaves',x:Math.random()*gameCanvas.width,y:Math.random()*HORIZON_Y,vx:-0.3-Math.random()*0.5,vy:0.05+Math.random()*0.2,s:1+Math.random()*1.0};return{t:'dust',x:Math.random()*gameCanvas.width,y:GROUND_Y-10-Math.random()*30,vx:-0.3-Math.random()*0.5,vy:-0.02+Math.random()*0.06,s:0.8+Math.random()*1.1};}
+    function updateParticles(list,b,adv){if(adv){for(const p of list){p.x+=p.vx;p.y+=p.vy;}if(list.length<60&&Math.random()<0.2)list.push(makeParticle(b));}return list.filter(p=>p.x>-10&&p.y>-20&&p.y<gameCanvas.height+10);}
+    function drawParticles(list,b,dayW,alpha=1){ctx.save();ctx.globalAlpha=alpha*clamp(0.75-dayW*0.4,0.2,0.75);for(const p of list){if(p.t==='snow'){ctx.fillStyle='#ffffff';ctx.beginPath();ctx.arc(p.x,p.y,p.s*0.8,0,Math.PI*2);ctx.fill();}else if(p.t==='ash'){ctx.fillStyle='#f0d6c8';ctx.fillRect(p.x,p.y,1,1);}else if(p.t==='leaves'){ctx.fillStyle='#9ad39c';ctx.fillRect(p.x,p.y,1.2,1.2);}else{ctx.fillStyle='#c9ab7b';ctx.fillRect(p.x,p.y,1,1);}}ctx.restore();}
+
+    function startWeather(kind){weather.active=true;weather.kind=kind;weather.timer=0;weather.particles=[];for(let i=0;i<60;i++)weather.particles.push(makeWeatherParticle(kind));}
+    function makeWeatherParticle(kind){const w=gameCanvas.width,h=gameCanvas.height;if(kind==='rain')return{x:Math.random()*w,y:-20,vx:-2-Math.random(),vy:8+Math.random()*4};if(kind==='sand')return{x:Math.random()*w,y:Math.random()*h,vx:-4-Math.random()*2,vy:Math.random()-0.5,s:2+Math.random()*2};if(kind==='ash')return{x:Math.random()*w,y:-20,vx:-1-Math.random()*0.5,vy:1+Math.random(),s:1+Math.random()};return{x:Math.random()*w,y:-20,vx:-0.5-Math.random()*0.5,vy:1+Math.random(),s:1.5+Math.random()*1.5};}
+    function updateWeather(dt,adv){if(!weather.active){if(prng()<0.0004)startWeather(currentBiome.weather);}else if(adv){weather.timer+=dt;for(const p of weather.particles){p.x+=p.vx;p.y+=p.vy;}const w=gameCanvas.width,h=gameCanvas.height;weather.particles=weather.particles.filter(p=>p.x>-20&&p.x<w+20&&p.y>-20&&p.y<h+20);while(weather.particles.length<60)weather.particles.push(makeWeatherParticle(weather.kind));if(weather.timer>=WEATHER_DURATION)weather.active=false;}}
+    function drawWeather(){if(!weather.active)return;ctx.save();if(weather.kind==='rain'){ctx.strokeStyle='rgba(174,194,224,0.6)';ctx.lineWidth=2;for(const p of weather.particles){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+p.vx*2,p.y+p.vy*2);ctx.stroke();}}else if(weather.kind==='sand'){ctx.fillStyle='rgba(222,194,150,0.5)';for(const p of weather.particles)ctx.fillRect(p.x,p.y,p.s,p.s);}else if(weather.kind==='ash'){ctx.fillStyle='rgba(150,130,130,0.6)';for(const p of weather.particles)ctx.fillRect(p.x,p.y,p.s,p.s);}else if(weather.kind==='snow'){ctx.fillStyle='rgba(255,255,255,0.9)';for(const p of weather.particles){ctx.beginPath();ctx.arc(p.x,p.y,p.s,0,Math.PI*2);ctx.fill();}}ctx.restore();}
+    function drawSeamBlend(b,alpha=1){ctx.save();ctx.globalAlpha=alpha;const top=HORIZON_Y-10,bot=GROUND_Y+24;const c1=colorLerp('#000000',b.horizon,0.25);const c2=colorLerp(b.groundTop,b.groundBottom,0.4);ctx.fillStyle=makeGradient(top,bot,c1,c2);ctx.fillRect(0,top,gameCanvas.width,bot-top);ctx.restore();}
+    function drawGround(b,alpha=1){ctx.save();ctx.globalAlpha=alpha;const grad=makeGradient(GROUND_Y-36,gameCanvas.height,b.groundTop,b.groundBottom);ctx.fillStyle=grad;ctx.beginPath();ctx.moveTo(0,HORIZON_Y-2);const freq=b.profile==='dunes'?90:b.profile==='craggy'?50:b.profile==='rounded'?110:70;const amp=b.profile==='dunes'?7:b.profile==='craggy'?5:b.profile==='rounded'?3:6;for(let x=0;x<=gameCanvas.width;x+=20){const y=Math.max(HORIZON_Y-2,GROUND_Y+Math.sin((x+frame*1.5)/freq)*amp);ctx.lineTo(x,y);}ctx.lineTo(gameCanvas.width,gameCanvas.height);ctx.lineTo(0,gameCanvas.height);ctx.closePath();ctx.fill();ctx.fillStyle=colorLerp(b.groundBottom,'#000',.25);ctx.fillRect(0,GROUND_Y+12,gameCanvas.width,2);groundLevel=GROUND_Y-16*SCALE+4;ctx.restore();}
+    function drawSky(b,dayW,alpha=1){ctx.save();ctx.globalAlpha=alpha;const[top,bot]=skyColors(b,dayW);ctx.fillStyle=makeGradient(0,gameCanvas.height,top,bot);ctx.fillRect(0,0,gameCanvas.width,gameCanvas.height);if(dayW<0.5){ctx.save();ctx.globalAlpha=alpha*clamp((0.5-dayW)/0.5,0,0.85);stars.forEach(s=>{ctx.fillStyle=Math.random()<0.9?'#dbe7ff':'#fff';ctx.fillRect(s.x,s.y,s.size,s.size);});ctx.restore();}const cx=gameCanvas.width*0.5,r=gameCanvas.width*0.45,k=((performance.now()-cycleStart)%DAY_LENGTH)/DAY_LENGTH,ang=Math.PI+k*Math.PI;const sx=cx+Math.cos(ang)*r,sy=gameCanvas.height*0.75+Math.sin(ang)*r*0.55,mx=cx+Math.cos(ang+Math.PI)*r,my=gameCanvas.height*0.75+Math.sin(ang+Math.PI)*r*0.55;ctx.globalAlpha=alpha*(1-dayW);ctx.fillStyle='#e6ecff';ctx.beginPath();ctx.arc(mx,my,14,0,Math.PI*2);ctx.fill();ctx.globalAlpha=alpha*clamp(dayW*1.1,0,1);const sunGrad=ctx.createRadialGradient(sx,sy,2,sx,sy,26);sunGrad.addColorStop(0,'#fff7c2');sunGrad.addColorStop(1,'#ffde66');ctx.fillStyle=sunGrad;ctx.beginPath();ctx.arc(sx,sy,18,0,Math.PI*2);ctx.fill();ctx.restore();}
+    function populateSelect(sel){CHARACTERS.forEach(c=>{const opt=document.createElement('option');opt.value=c.id;opt.textContent=`${c.emoji} ${c.name}`;sel.appendChild(opt);});sel.value=CHARACTERS[0].id;}
+    populateSelect(charSelect);populateSelect(mChar);
+    function currentCharacter(id){return CHARACTERS.find(c=>c.id===id)||CHARACTERS[0];}
+    function updateCharDisplay(id){const c=currentCharacter(id);charDisplay.textContent=`${c.emoji} ${c.name}`;}
+    charSelect.addEventListener('change',()=>updateCharDisplay(charSelect.value));
+    mChar.addEventListener('change',()=>updateCharDisplay(mChar.value));
+    updateCharDisplay(CHARACTERS[0].id);
+let ytAPIReady=false,ytPlayer=null,ytConfig={videos:[],playlist:null};function onYouTubeIframeAPIReady(){ytAPIReady=true;}window.onYouTubeIframeAPIReady=onYouTubeIframeAPIReady;
+function waitForYT(){return new Promise(r=>{if(ytAPIReady&&window.YT&&YT.Player)return r();const t=setInterval(()=>{if(ytAPIReady&&window.YT&&YT.Player){clearInterval(t);r();}},50);});}
+function parseYouTubeLinks(text){
+  const lines=text.split(/\n+/).map(l=>l.trim()).filter(Boolean);
+  const videos=[];let playlist=null;
+  for(const line of lines){
+    try{
+      const u=new URL(line);
+      const host=u.hostname.replace(/^www\./,'');
+      if(host==='youtu.be'){
+        videos.push(u.pathname.slice(1));
+        continue;
+      }
+      if(host.endsWith('youtube.com')||host.endsWith('youtube-nocookie.com')){
+        const v=u.searchParams.get('v');
+        if(v){videos.push(v);continue;}
+        if(u.pathname.startsWith('/shorts/')){videos.push(u.pathname.split('/')[2]);continue;}
+        if(u.pathname.startsWith('/embed/')){videos.push(u.pathname.split('/')[2]);continue;}
+        if(u.pathname.startsWith('/live/')){videos.push(u.pathname.split('/')[2]);continue;}
+        const list=u.searchParams.get('list');
+        if(list&&!playlist){playlist=list;continue;}
+      }
+    }catch{
+      if(/^[A-Za-z0-9_-]{11}$/.test(line))videos.push(line);
+    }
+  }
+  return {videos,playlist};
+}
+async function startYouTubeWith(cfg){
+  const {videos,playlist}=cfg||{};
+  const videoContainer=document.getElementById('videoContainer');
+  if((!videos||!videos.length)&&!playlist){
+    document.body.classList.add('game-only');
+    document.body.classList.remove('has-video');
+    videoContainer.classList.remove('active');
+    return;
+  }
+  document.body.classList.add('has-video');
+  document.body.classList.remove('game-only');
+  videoContainer.classList.add('active');
+  await waitForYT();
+  if(ytPlayer){
+    if(playlist){
+      ytPlayer.loadPlaylist({list:playlist});
+    }else{
+      ytPlayer.loadVideoById(videos[0]);
+      if(videos.length>1)ytPlayer.cuePlaylist(videos.slice(1));
+    }
+    ytPlayer.unMute();
+    ytPlayer.setVolume(100);
+    ytPlayer.playVideo();
+    return;
+  }
+  const playerVars={autoplay:1,controls:1,modestbranding:1,rel:0,playsinline:1};
+  if(playlist){
+    playerVars.listType='playlist';
+    playerVars.list=playlist;
+  }else if(videos.length>1){
+    playerVars.playlist=videos.slice(1).join(',');
+  }
+  ytPlayer=new YT.Player('yt-player',{
+    width:'100%',
+    height:isMobile?'180':'240',
+    videoId:videos.length?videos[0]:undefined,
+    playerVars,
+    events:{
+      onReady:(e)=>{
+        e.target.unMute();
+        e.target.setVolume(100);
+        if(playlist&&!videos.length){
+          e.target.loadPlaylist({list:playlist});
+        }else{
+          e.target.playVideo();
+        }
+      },
+      onStateChange:(e)=>{
+        if(e.data===1)statusDisplay.textContent='Playing';
+        else if(e.data===2)statusDisplay.textContent='Paused';
+        else if(e.data===0)statusDisplay.textContent='Ended';
+      }
+    }
+  });
+}
+    btnPlay.addEventListener('click',()=>{if(ytPlayer&&ytPlayer.playVideo){ytPlayer.unMute();ytPlayer.playVideo();}});
+    btnPause.addEventListener('click',()=>{if(ytPlayer&&ytPlayer.pauseVideo){ytPlayer.pauseVideo();}});
+    btnSkip.addEventListener('click',()=>{if(ytPlayer&&ytPlayer.nextVideo){ytPlayer.nextVideo();}});
+function startFlow(cfg,selectedCharId){
+      ytConfig=cfg;updateCharDisplay(selectedCharId);selectedChar=selectedCharId;statusDisplay.textContent='Ready';
+      const hasLinks=ytConfig.videos.length||ytConfig.playlist;
+      if(!hasLinks){
+        if(ytLabel)ytLabel.style.display='none';
+        ytInput.style.display='none';
+        if(mYtLabel)mYtLabel.style.display='none';
+        mYt.style.display='none';
+        videoControls.style.display='none';
+      }
+      startYouTubeWith(ytConfig);
+      if(isMobile)overlay.classList.remove('open');
+      const wasOver = gameOver;
+      reset(true);
+      if(wasOver) requestAnimationFrame(loop);
+    }
+startBtn.addEventListener('click',()=>{const cfg=parseYouTubeLinks(ytInput.value);startFlow(cfg,charSelect.value);});
+mStart.addEventListener('click',()=>{const cfg=parseYouTubeLinks(mYt.value);startFlow(cfg,mChar.value);});
+    if(isMobile)overlay.classList.add('open');
+    const GRAVITY=0.6;
+    const HORIZON_Y=Math.round(gameCanvas.height*0.68);
+    const GROUND_Y=Math.round(gameCanvas.height*0.82);
+    let groundLevel=GROUND_Y-16*SCALE;
+    let selectedChar=CHARACTERS[0].id;
+let gameSpeed=6;let score=0;let bestScore=0;let lastTime=performance.now();let lastBirdSpawn=0;let obstacles=[];let birds=[];let powerUps=[];let playing=false;let gameOver=false;let dinoPose='stand';
+let weather={active:false,kind:null,particles:[],timer:0};const WEATHER_DURATION=6000;
+let lastPowerUpSpawn=0;
+    let distSinceLastObs=0,distSinceLastBird=Infinity;let nextObsGap=0;let nextScoreSound=1000;
+    let frame=0;
+    const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    function playSound(freq,duration=0.1){const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();osc.type='square';osc.frequency.value=freq;osc.connect(gain);gain.connect(audioCtx.destination);gain.gain.setValueAtTime(0.1,audioCtx.currentTime);osc.start();osc.stop(audioCtx.currentTime+duration);}
+    document.addEventListener('click',()=>audioCtx.resume(),{once:true});
+    document.addEventListener('keydown',()=>audioCtx.resume(),{once:true});
+    class Dino{
+      constructor(){
+        this.w=16*SCALE;this.h=16*SCALE;
+        this.baseX=50;this.x=this.baseX;this.xOffset=0;this.targetOffset=0;
+        this.y=groundLevel;this.vy=0;this.onGround=true;
+        this.shields=0;
+      }
+      jump(){
+        if(this.onGround&&playing){
+          this.vy=-12.5;this.onGround=false;
+          this.targetOffset=30; // push forward then slide back smoothly
+          dinoPose='jump';playSound(440);
+        }
+      }
+      crouch(on){if(this.onGround){dinoPose=on?'crouch':'stand';}}
+      update(){
+        this.vy+=GRAVITY;this.y+=this.vy;
+        this.xOffset=lerp(this.xOffset,this.targetOffset,this.onGround?0.08:0.2);
+        this.x=this.baseX+this.xOffset;
+        if(this.y>=groundLevel){
+          this.y=groundLevel;this.vy=0;this.onGround=true;this.targetOffset=0;
+          if(dinoPose==='jump')dinoPose='stand';
+        }
+      }
+      draw(){
+        drawPose(ctx,POSES[selectedChar][dinoPose],P[selectedChar],this.x,this.y);
+        if(this.shields>0){
+          const cx=this.x+this.w/2, cy=this.y+this.h/2, r=this.w;
+          const col=SHIELD_COLORS[this.shields-1];
+          ctx.save();
+          ctx.strokeStyle=col.stroke;
+          ctx.lineWidth=4;
+          ctx.shadowColor=col.stroke.replace('0.9','0.6');
+          ctx.shadowBlur=8;
+          ctx.beginPath();
+          ctx.arc(cx,cy,r,0,Math.PI*2);
+          ctx.stroke();
+          ctx.shadowBlur=0;
+          ctx.globalAlpha=0.25;
+          ctx.fillStyle=col.fill;
+          ctx.beginPath();
+          ctx.arc(cx,cy,r-2,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      get rect(){return{x:this.x,y:this.y,w:this.w,h:this.h};}
+    }
+    function drawWing(frame,color,scale=1){ctx.fillStyle=color;ctx.beginPath();if(frame===0){ctx.moveTo(-10*scale,-2*scale);ctx.quadraticCurveTo(-30*scale,-22*scale,-40*scale,-2*scale);ctx.quadraticCurveTo(-28*scale,6*scale,-8*scale,10*scale);}else if(frame===1){ctx.moveTo(-6*scale,-4*scale);ctx.quadraticCurveTo(-26*scale,-42*scale,-36*scale,-22*scale);ctx.quadraticCurveTo(-26*scale,-6*scale,-6*scale,8*scale);}else{ctx.moveTo(-10*scale,-2*scale);ctx.quadraticCurveTo(-30*scale,16*scale,-40*scale,30*scale);ctx.quadraticCurveTo(-20*scale,20*scale,-8*scale,10*scale);}ctx.closePath();ctx.fill();ctx.stroke();}
+    function drawBirdA(b){const {x,y,w,h,flapFrame,scale}=b;const s=scale||1;ctx.save();ctx.translate(x,y);ctx.lineWidth=2*s;ctx.strokeStyle='#2b2b2b';ctx.scale(-1,1);ctx.fillStyle='#4aa3a3';ctx.beginPath();ctx.ellipse(0,0,w*0.45,h*0.4,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#79c8c5';ctx.beginPath();ctx.ellipse(-6*s,6*s,w*0.28,h*0.22,0,0,Math.PI*2);ctx.fill();ctx.stroke();drawWing(flapFrame,'#3b8f90',s);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(w*0.15,-6*s,12*s,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#2b2b2b';ctx.beginPath();ctx.arc(w*0.20,-6*s,6*s,0,Math.PI*2);ctx.fill();ctx.fillStyle='#f0b35d';ctx.beginPath();ctx.moveTo(w*0.42,0);ctx.quadraticCurveTo(w*0.57,4*s,w*0.46,10*s);ctx.quadraticCurveTo(w*0.40,6*s,w*0.42,0);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
+    function drawBirdB(b){const {x,y,w,h,flapFrame,scale}=b;const s=scale||1;ctx.save();ctx.translate(x,y);ctx.lineWidth=2*s;ctx.strokeStyle='#2b2b2b';ctx.scale(-1,1);ctx.fillStyle='#7e6ad8';ctx.beginPath();ctx.ellipse(-2*s,0,w*0.46,h*0.38,0,0,Math.PI*2);ctx.fill();ctx.stroke();drawWing(flapFrame,'#5b4ab2',s);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(w*0.12,-8*s,11*s,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#2b2b2b';ctx.beginPath();ctx.arc(w*0.16,-8*s,5*s,0,Math.PI*2);ctx.fill();ctx.fillStyle='#f4b860';ctx.beginPath();ctx.moveTo(w*0.40,-2*s);ctx.quadraticCurveTo(w*0.53,1*s,w*0.44,6*s);ctx.quadraticCurveTo(w*0.38,3*s,w*0.40,-2*s);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
+    function drawCactus(o){
+      const {x,y,h,scale,arms}=o; const s=scale||1; const ht=h*s; const coreW=36*s; const armW=20*s;
+      ctx.save(); ctx.translate(x,y); ctx.lineWidth=2*s; ctx.strokeStyle='#1e492e';
+      const grad=ctx.createLinearGradient(-coreW/2,0,coreW/2,0); grad.addColorStop(0,'#3d9d63'); grad.addColorStop(1,'#2f7d4b'); ctx.fillStyle=grad;
+      // trunk with rounded top
+      ctx.beginPath();
+      ctx.moveTo(-coreW/2,0);
+      ctx.lineTo(-coreW/2,-ht+20*s);
+      ctx.quadraticCurveTo(-coreW/2,-ht,0,-ht);
+      ctx.quadraticCurveTo(coreW/2,-ht,coreW/2,-ht+20*s);
+      ctx.lineTo(coreW/2,0);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      // side arms
+      function arm(dir){
+        const armY=-ht*0.55; const armH=ht*0.5; const baseX=coreW/2*dir;
+        ctx.beginPath();
+        ctx.moveTo(baseX,armY);
+        ctx.lineTo(baseX+armW*0.6*dir,armY);
+        ctx.quadraticCurveTo(baseX+armW*dir,armY,baseX+armW*dir,armY-armW*0.6);
+        ctx.lineTo(baseX+armW*dir,armY-armH);
+        ctx.quadraticCurveTo(baseX+armW*dir,armY-armH-armW*0.2,baseX+armW*0.4*dir,armY-armH-armW*0.2);
+        ctx.quadraticCurveTo(baseX,armY-armH-armW*0.2,baseX,armY-armH-armW*0.6);
+        ctx.lineTo(baseX,armY);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      }
+      if(arms==='left'||arms==='both') arm(-1);
+      if(arms==='right'||arms==='both') arm(1);
+      // subtle vertical ridges
+      ctx.strokeStyle='rgba(255,255,255,0.18)';
+      for(let i=-coreW/2+4*s;i<coreW/2;i+=6*s){
+        ctx.beginPath();
+        ctx.moveTo(i,-ht+4*s);
+        ctx.lineTo(i,-4*s);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function drawTree(o){
+      const {x,y,scale,biome}=o; const s=scale||1;
+      ctx.save(); ctx.translate(x,y); ctx.lineWidth=2*s;
+      if(biome==='Desert'){
+        ctx.fillStyle='#c8a75e'; ctx.strokeStyle='#846c3a';
+        ctx.beginPath(); ctx.roundRect(-6*s,-80*s,12*s,82*s,6*s); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#3c7a46'; ctx.strokeStyle='#1e492e';
+        for(let i=0;i<5;i++){
+          ctx.beginPath(); ctx.moveTo(0,-80*s);
+          const ang=-Math.PI/2 + i*(Math.PI/4) - Math.PI/8;
+          const rx=Math.cos(ang)*40*s, ry=Math.sin(ang)*40*s;
+          ctx.quadraticCurveTo(rx*0.5,-80*s-20*s,rx,ry-80*s);
+          ctx.quadraticCurveTo(rx*0.8,ry-40*s,0,-80*s);
+          ctx.fill(); ctx.stroke();
+        }
+      }else{
+        let trunkF='#9c6b3a', trunkS='#5d3a1f';
+        let leafF='#3c7a46', leafS='#1e492e';
+        if(biome==='Volcano'){trunkF='#5b3a2a'; trunkS='#3d2416'; leafF='#8b2a2a'; leafS='#4c1a1a';}
+        ctx.fillStyle=trunkF; ctx.strokeStyle=trunkS;
+        ctx.beginPath(); ctx.roundRect(-14*s,-90*s,28*s,92*s,12*s); ctx.fill(); ctx.stroke();
+        ctx.fillStyle=leafF; ctx.strokeStyle=leafS;
+        ctx.beginPath(); ctx.roundRect(-50*s,-150*s,100*s,80*s,36*s); ctx.fill(); ctx.stroke();
+        if(biome==='Snow'){
+          ctx.fillStyle='#fff';
+          ctx.beginPath(); ctx.roundRect(-50*s,-150*s,100*s,20*s,36*s); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+    function drawPowerUp(p){
+      ctx.save();
+      ctx.translate(p.x,p.y);
+      const r=(p.size||20)/2;
+      const g=ctx.createRadialGradient(0,0,2,0,0,r);
+      g.addColorStop(0,'rgba(180,255,255,0.95)');
+      g.addColorStop(1,'rgba(0,160,255,0.8)');
+      ctx.fillStyle=g;
+      ctx.shadowColor='rgba(0,200,255,0.7)';
+      ctx.shadowBlur=6;
+      ctx.beginPath();
+      ctx.arc(0,0,r,0,Math.PI*2);
+      ctx.fill();
+      ctx.lineWidth=2;
+      ctx.strokeStyle='rgba(255,255,255,0.9)';
+      ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.fillStyle='rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(0,-r*0.6);
+      ctx.lineTo(r*0.55,-r*0.2);
+      ctx.lineTo(r*0.4,r*0.6);
+      ctx.lineTo(-r*0.4,r*0.6);
+      ctx.lineTo(-r*0.55,-r*0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,0.25)';
+      ctx.lineWidth=1;
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Slightly narrower hitboxes to better match visible sprites
+    function birdHitbox(b){return{x:b.x-b.w*0.4,y:b.y-b.h*0.35,w:b.w*0.8,h:b.h*0.7};}
+    function cactusHitbox(o){const s=o.scale||1;const ht=o.h*s;const w=o.width;const left=o.hitOffset||(-w/2);return{x:o.x+left,y:o.y-ht,w,h:ht};}
+    function treeHitbox(o){const s=o.scale||1; if(o.biome==='Desert'){const w=12*s;const h=82*s;return{x:o.x-w/2,y:o.y-h,w,h};} const w=20*s;const h=92*s;return{x:o.x-w/2,y:o.y-h,w,h};}
+    function aabb(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+    const dino=new Dino();
+    function spawnGroundObstacle(){
+      const kind = Math.random()<0.5 ? 'cactus' : 'tree';
+      if(kind==='cactus'){
+        const scale = 0.6 + Math.random()*0.3; // varied size but jumpable
+        const h = 60 + Math.random()*30;       // base height before scaling
+        const armChoice=['left','right','both'][Math.floor(Math.random()*3)];
+        const coreW=36*scale;const armW=20*scale;
+        let left=-coreW/2,right=coreW/2;
+        if(armChoice==='left'||armChoice==='both') left-=armW;
+        if(armChoice==='right'||armChoice==='both') right+=armW;
+        const width=right-left;
+        obstacles.push({kind,x:gameCanvas.width+40,y:GROUND_Y,h,scale,width,arms:armChoice,hitOffset:left});
+        return width;
+      }else{
+        const scale = 0.4 + Math.random()*0.1; // smaller trees
+        const width = 100*scale;
+        obstacles.push({kind,x:gameCanvas.width+40,y:GROUND_Y,scale,width,biome:currentBiome.name});
+        return width;
+      }
+    }
+    function spawnBird(count=1){
+      const scale = 0.5; // smaller birds
+      const w = 70*scale, h = 56*scale;
+      const minY = GROUND_Y - 120; // vary height but stay below trees
+      const maxY = GROUND_Y - 60;
+      for(let i=0;i<count;i++){
+        const variant = Math.random()<0.5?'A':'B';
+        const y = minY + Math.random()*(maxY - minY);
+        const x = gameCanvas.width + 40 + i*(w+20);
+        birds.push({variant,x,y,w,h,scale,flapFrame:0,flapTimer:0});
+      }
+      distSinceLastBird = 0;
+    }
+    function spawnPowerUp(){
+      const size = 20;
+      powerUps.push({type:'shield',x:gameCanvas.width+40,y:GROUND_Y-60,size});
+    }
+    function setNextObstacleGap(lastWidth=0){
+      const minGap = lastWidth + 200 + gameSpeed*15;
+      const maxGap = minGap + 200 + gameSpeed*30;
+      nextObsGap = minGap + Math.random()*(maxGap-minGap);
+    }
+    function maybeSpawn(now){
+      if(distSinceLastObs >= nextObsGap){
+        const width = spawnGroundObstacle();
+        distSinceLastObs = 0;
+        setNextObstacleGap(width);
+      }
+      const birdInterval = Math.max(600,1500 + Math.random()*1000 - gameSpeed*50);
+      const birdGap = 400;
+      const groundBuffer = 400;
+      if(obstacles.length===0 && now - lastBirdSpawn > birdInterval && distSinceLastBird > birdGap && (nextObsGap - distSinceLastObs) > groundBuffer){
+        let flock = 1;
+        if(gameSpeed>9){
+          const max = Math.min(4, Math.floor((gameSpeed-9)/2)+1);
+          flock = 1 + Math.floor(Math.random()*max);
+        }
+        spawnBird(flock);
+        lastBirdSpawn = now;
+      }
+      const powerInterval = 12000;
+      if(dino.shields<MAX_SHIELDS && now - lastPowerUpSpawn > powerInterval && distSinceLastObs > 200){
+        spawnPowerUp();
+        lastPowerUpSpawn = now;
+      }
+    }
+    function reset(start=false){
+      score=0;lastTime=performance.now();lastBirdSpawn=0;obstacles=[];birds=[];powerUps=[];playing=start;gameOver=false;gameSpeed=6;
+      farRidges=[];midRidges=[];nearRidges=[];propsFar=[];propsNear=[];particles=[];
+      farRidgesNext=[];midRidgesNext=[];nearRidgesNext=[];propsFarNext=[];propsNearNext=[];particlesNext=[];
+      biomeStart=performance.now();
+      weather={active:false,kind:null,particles:[],timer:0};
+      dino.y=groundLevel;dino.vy=0;dino.onGround=true;dinoPose='stand';
+      distSinceLastObs=0;distSinceLastBird=Infinity;setNextObstacleGap();nextScoreSound=1000;dino.shields=0;lastPowerUpSpawn=0;
+      statusDisplay.textContent='Ready';restartBtn.style.display='none';
+    }
+    function loop(now){
+      const dt = now - lastTime; lastTime = now; frame++;
+      ctx.clearRect(0,0,gameCanvas.width,gameCanvas.height);
+      updateBiomeProgress();
+      if(farRidges.length===0) resetParallax(currentBiome);
+      const dayW = getTimeOfDay();
+      const adv = (playing && !gameOver) ? 1 : 0;
+      let worldSpeed = gameSpeed;
+      if(adv){
+          const baseSpeed = 6 + score/800;
+          gameSpeed = baseSpeed;
+          worldSpeed = baseSpeed;
+          score += dt*0.06;
+          if(score >= nextScoreSound){playSound(880,0.07);nextScoreSound += 1000;}
+          const distAdvance = worldSpeed * (dt/16.6667);
+          distSinceLastObs += distAdvance;
+          distSinceLastBird += distAdvance;
+          maybeSpawn(now);
+        statusDisplay.textContent = 'Playing';
+      } else if (!gameOver) {
+        statusDisplay.textContent = 'Paused';
+      }
+      updateWeather(dt,adv);
+      BgSpeed.update(score);
+      drawSky(currentBiome, dayW, 1-biomeProgress);
+      if(biomeProgress>0) drawSky(nextBiome, dayW, biomeProgress);
+      drawRidgeStrip(farRidges, currentBiome, dayW, adv, 1-biomeProgress);
+      if(biomeProgress>0) drawRidgeStrip(farRidgesNext, nextBiome, dayW, adv, biomeProgress);
+      drawRidgeStrip(midRidges, currentBiome, dayW, adv, 1-biomeProgress);
+      if(biomeProgress>0) drawRidgeStrip(midRidgesNext, nextBiome, dayW, adv, biomeProgress);
+      drawRidgeStrip(nearRidges, currentBiome, dayW, adv, 1-biomeProgress);
+      if(biomeProgress>0) drawRidgeStrip(nearRidgesNext, nextBiome, dayW, adv, biomeProgress);
+      drawProps(propsFar, currentBiome, dayW, adv, 1-biomeProgress);
+      if(biomeProgress>0) drawProps(propsFarNext, nextBiome, dayW, adv, biomeProgress);
+      drawProps(propsNear, currentBiome, dayW, adv, 1-biomeProgress);
+      if(biomeProgress>0) drawProps(propsNearNext, nextBiome, dayW, adv, biomeProgress);
+      drawSeamBlend(currentBiome, 1-biomeProgress);
+      if(biomeProgress>0) drawSeamBlend(nextBiome, biomeProgress);
+      drawGround(currentBiome, 1-biomeProgress);
+      if(biomeProgress>0) drawGround(nextBiome, biomeProgress);
+      particles = updateParticles(particles, currentBiome, adv);
+      drawParticles(particles, currentBiome, dayW, 1-biomeProgress);
+      if(biomeProgress>0){
+        particlesNext = updateParticles(particlesNext, nextBiome, adv);
+        drawParticles(particlesNext, nextBiome, dayW, biomeProgress);
+      }
+      if(adv){
+        dino.update();
+        obstacles.forEach(o=>o.x-=worldSpeed);
+        birds.forEach(b=>{b.x-=worldSpeed;b.flapTimer+=dt;if(b.flapTimer>120){b.flapTimer=0;b.flapFrame=(b.flapFrame+1)%3;}});
+        powerUps.forEach(p=>p.x-=worldSpeed);
+        obstacles = obstacles.filter(o=>o.x>-120);
+        birds = birds.filter(b=>b.x>-140);
+        powerUps = powerUps.filter(p=>p.x>-40);
+      }
+      dino.draw();
+      obstacles.forEach(o=>{if(o.kind==='cactus')drawCactus(o);else drawTree(o);});
+      birds.forEach(b=>{(b.variant==='A'?drawBirdA:drawBirdB)(b);});
+      powerUps.forEach(drawPowerUp);
+      drawWeather();
+      if(adv){
+        for(let i=0;i<powerUps.length;i++){
+          const p=powerUps[i];
+          const box={x:p.x-10,y:p.y-10,w:20,h:20};
+          if(aabb(dino.rect,box)){
+            if(dino.shields<MAX_SHIELDS){
+              dino.shields++;
+              playSound(660,0.07);
+            }
+            powerUps.splice(i,1); i--; continue;
+          }
+        }
+        for(let i=0;i<obstacles.length;i++){
+          const o=obstacles[i];
+          const hit=o.kind==='cactus'?cactusHitbox(o):treeHitbox(o);
+          if(aabb(dino.rect,hit)){
+            if(dino.shields>0){dino.shields--;obstacles.splice(i,1);i--;continue;}
+            if(!gameOver){bestScore=Math.max(bestScore,score);} gameOver=true;playing=false;statusDisplay.textContent='Game Over';
+          }
+        }
+        for(let i=0;i<birds.length;i++){
+          const b=birds[i];
+          if(aabb(dino.rect,birdHitbox(b))){
+            if(dino.shields>0){dino.shields--;birds.splice(i,1);i--;continue;}
+            if(!gameOver){bestScore=Math.max(bestScore,score);} gameOver=true;playing=false;statusDisplay.textContent='Game Over';
+          }
+        }
+      }
+      ctx.fillStyle='white';
+      ctx.font='16px system-ui';
+      ctx.textAlign='left';
+      ctx.fillText(`Score: ${Math.floor(score)}`,10,20);
+      ctx.textAlign='right';
+      ctx.fillText(`Best: ${Math.floor(bestScore)}`,gameCanvas.width-10,20);
+      ctx.textAlign='center';
+      ctx.fillText(`Shields: ${dino.shields}`,gameCanvas.width/2,20);
+      ctx.textAlign='left';
+      if(gameOver){
+        ctx.fillStyle='rgba(0,0,0,.5)';
+        ctx.fillRect(0,0,gameCanvas.width,gameCanvas.height);
+        ctx.fillStyle='#fff';
+        ctx.font='bold 36px system-ui';
+        ctx.textAlign='center';
+        ctx.fillText('Game Over',gameCanvas.width/2,gameCanvas.height/2-30);
+        ctx.textAlign='start';
+        restartBtn.style.display='block';
+      }
+      if(!gameOver) requestAnimationFrame(loop);
+    }
+    document.addEventListener('keydown',e=>{
+      if(['Space','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault();
+      if(e.code==='Space'||e.code==='ArrowUp') dino.jump();
+      if(e.code==='ArrowDown') dino.crouch(true);
+      if(e.key.toLowerCase()==='r'){ const wasOver=gameOver; reset(true); if(wasOver) requestAnimationFrame(loop); }
+      if(e.key.toLowerCase()==='p'&&!gameOver) playing=!playing;
+      if(e.code==='Enter'&&gameOver){ reset(true); requestAnimationFrame(loop); }
+    });
+    restartBtn.addEventListener('click',()=>{reset(true); requestAnimationFrame(loop);});
+    document.addEventListener('keyup',e=>{if(e.code==='ArrowDown')dino.crouch(false);});
+    reset(false);
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
